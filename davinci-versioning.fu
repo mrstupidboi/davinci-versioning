@@ -1,0 +1,22 @@
+--[[
+    davinci-versioning.fu
+    ---------------------
+    Fusion configuration file that registers a default keyboard shortcut
+    for the davinci-versioning utility script.
+
+    Install to the same folder as davinci-versioning.py:
+        C:\ProgramData\Blackmagic Design\DaVinci Resolve\Fusion\Scripts\Utility\
+
+    The default hotkey is Ctrl+Alt+V.
+    To change it, open DaVinci Resolve and go to:
+        Workspace > Keyboard Customization > Scripts > davinci-versioning
+]]
+
+{
+    Hotkeys = {
+        Main = {
+            -- Ctrl+Alt+V  –  run the Auto-Version Render script
+            ["CTRL+ALT+V"] = "Execute{cmd = [[Scripts/Utility/davinci-versioning]]}",
+        },
+    },
+}
