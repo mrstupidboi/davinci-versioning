@@ -3,8 +3,24 @@ DaVinci Resolve Auto-Version Render Job for Windows (Python)
 
 Checks the output folder for existing files and creates the next _v## filename.
 
-Install to:
-    C:\ProgramData\Blackmagic Design\DaVinci Resolve\Fusion\Scripts\Utility
+Installation
+------------
+1. Copy davinci-versioning.py to:
+       C:\ProgramData\Blackmagic Design\DaVinci Resolve\Fusion\Scripts\Utility\
+
+2. Copy davinci-versioning.fu to the same folder:
+       C:\ProgramData\Blackmagic Design\DaVinci Resolve\Fusion\Scripts\Utility\
+
+   The .fu file registers a default keyboard shortcut (Ctrl+Alt+V) so you can
+   run the script without opening the Workspace > Scripts menu.
+
+Changing the hotkey
+-------------------
+Open DaVinci Resolve and go to:
+    Workspace > Keyboard Customization > Scripts > davinci-versioning
+
+Assign any shortcut you like, then click Save.
+Alternatively, edit the CTRL+ALT+V entry in davinci-versioning.fu directly.
 """
 
 from __future__ import annotations
