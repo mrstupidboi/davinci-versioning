@@ -218,7 +218,7 @@ def get_current_extension(project, lines: list[str]) -> str | None:
     return extension
 
 
-def get_project_output_folder(project, lines: list[str]) -> Path | None:
+def get_project_output_folder(project, lines: list[str]) -> tuple[Path, bool] | None:
     render_jobs = project.GetRenderJobList()
     if render_jobs:
         latest_job = render_jobs[-1]
@@ -229,7 +229,7 @@ def get_project_output_folder(project, lines: list[str]) -> Path | None:
         if target_dir:
             output_folder = Path(target_dir)
             if output_folder.is_dir():
-                return output_folder
+                return output_folder, False
             log_line(lines, f"ERROR: Latest render job folder does not exist: {output_folder}")
             return None
 
@@ -237,12 +237,15 @@ def get_project_output_folder(project, lines: list[str]) -> Path | None:
         output_folder = Path(FALLBACK_OUTPUT_FOLDER)
         log_line(lines, f"Using fallback output folder: {output_folder}")
         if output_folder.is_dir():
-            return output_folder
+            return output_folder, True
         log_line(lines, f"ERROR: Fallback output folder does not exist: {output_folder}")
         return None
 
     log_line(lines, "No render jobs found for this project. Prompting for output folder.")
-    return prompt_for_output_folder(lines)
+    prompted_folder = prompt_for_output_folder(lines)
+    if not prompted_folder:
+        return None
+    return prompted_folder, True
 
 
 # ------------------------------------------------------------
@@ -278,10 +281,11 @@ def main() -> None:
         write_log(lines)
         return
 
-    output_folder = get_project_output_folder(project, lines)
-    if not output_folder:
+    output_folder_info = get_project_output_folder(project, lines)
+    if not output_folder_info:
         write_log(lines)
         return
+    output_folder, should_set_target_dir = output_folder_info
 
     log_line(lines, f"Resolved output folder: {output_folder}")
 
@@ -304,12 +308,16 @@ def main() -> None:
     log_line(lines, f"Next filename without extension: {custom_name}")
     log_line(lines, f"Expected full file: {output_folder}\\{custom_name}.{extension}")
 
-    # Preserve the Deliver page location and format settings, and update only the filename.
-    ok = project.SetRenderSettings(
-        {
-            "CustomName": custom_name,
-        }
-    )
+    # Preserve the Deliver page format settings, and only set TargetDir when we had
+    # to infer it ourselves because the project had no usable render-job location yet.
+    render_settings = {
+        "CustomName": custom_name,
+    }
+    if should_set_target_dir:
+        render_settings["TargetDir"] = str(output_folder)
+        log_line(lines, f"Applying TargetDir from fallback selection: {output_folder}")
+
+    ok = project.SetRenderSettings(render_settings)
 
     if not ok:
         log_line(
