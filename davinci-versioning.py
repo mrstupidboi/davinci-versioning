@@ -9,9 +9,12 @@ Install to:
 
 from __future__ import annotations
 
+import sys
+
+sys.dont_write_bytecode = True
+
 import os
 import re
-import sys
 import tempfile
 from pathlib import Path
 from tkinter import Tk, filedialog
@@ -29,6 +32,7 @@ FALLBACK_OUTPUT_FOLDER = None
 
 # Version format: _v01, _v02, etc.
 VERSION_DIGITS = 2
+
 
 # ------------------------------------------------------------
 # HELPERS
@@ -188,9 +192,6 @@ def get_current_extension(project, lines: list[str]) -> str | None:
 
     extension = None
 
-    # Resolve returns the current format as an internal code like "mp4" or "mov",
-    # while GetRenderFormats() uses display names like "MP4" or "QuickTime" as keys
-    # and the file extension as the value.
     if render_format in render_formats.values():
         extension = render_format
     else:
@@ -303,36 +304,26 @@ def main() -> None:
     log_line(lines, f"Next filename without extension: {custom_name}")
     log_line(lines, f"Expected full file: {output_folder}\\{custom_name}.{extension}")
 
-    # Preserve the Deliver page format settings, and only set TargetDir when we had
-    # to infer it ourselves because the project had no usable render-job location yet.
     render_settings = {
         "CustomName": custom_name,
     }
     if should_set_target_dir:
         render_settings["TargetDir"] = str(output_folder)
-        log_line(lines, f"Applying TargetDir from fallback selection: {output_folder}")
 
-    ok = project.SetRenderSettings(render_settings)
-
-    if not ok:
-        log_line(
-            lines,
-            "ERROR: SetRenderSettings failed. Open the Deliver page once, choose your render preset/settings, then try again.",
-        )
+    log_line(lines, f"Applying render settings: {render_settings}")
+    if not project.SetRenderSettings(render_settings):
+        log_line(lines, "ERROR: Failed to set render settings.")
         write_log(lines)
         return
 
     job_id = project.AddRenderJob()
     if not job_id:
-        log_line(
-            lines,
-            "ERROR: AddRenderJob failed. Open the Deliver page and make sure render settings are valid.",
-        )
+        log_line(lines, "ERROR: Failed to add render job.")
         write_log(lines)
         return
 
-    log_line(lines, f"SUCCESS: Added render job ID: {job_id}")
-    log_line(lines, "Now check Deliver page > Render Queue.")
+    log_line(lines, f"Created render job: {job_id}")
+    log_line(lines, f"Created filename: {custom_name}.{extension}")
     write_log(lines)
 
 
