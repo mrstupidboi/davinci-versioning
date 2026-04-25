@@ -11,7 +11,6 @@ from __future__ import annotations
 
 import os
 import re
-import subprocess
 import sys
 import tempfile
 from pathlib import Path
@@ -31,23 +30,19 @@ FALLBACK_OUTPUT_FOLDER = None
 # Version format: _v01, _v02, etc.
 VERSION_DIGITS = 2
 
-# Set to True if you want Notepad to open with a log every time.
-SHOW_LOG = True
-
 # ------------------------------------------------------------
 # HELPERS
 # ------------------------------------------------------------
 
 def log_line(lines: list[str], text: object) -> None:
-    lines.append(str(text))
+    message = str(text)
+    lines.append(message)
+    print(message)
 
 
 def write_log(lines: list[str]) -> None:
     log_path = Path(tempfile.gettempdir()) / "resolve_auto_version_render_log.txt"
     log_path.write_text("\n".join(lines) + "\n", encoding="utf-8")
-
-    if SHOW_LOG:
-        subprocess.Popen(["notepad.exe", str(log_path)])
 
 
 def prompt_for_output_folder(lines: list[str]) -> Path | None:
