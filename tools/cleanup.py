@@ -11,7 +11,7 @@ sys.dont_write_bytecode = True
 
 from shared.resolve_tooling import (
     detect_environment,
-    get_appdata_win,
+    get_user_support_root,
     resolve_default_destination,
     to_wsl_path,
     validate_destination,
@@ -26,13 +26,13 @@ def main() -> None:
         "name",
         metavar="SCRIPT_NAME",
         nargs="?",
-        default="davinci-versioning.py",
-        help="Script filename to remove. Defaults to davinci-versioning.py.",
+        default="davinci-versioning.lua",
+        help="Script filename to remove. Defaults to davinci-versioning.lua.",
     )
     parser.add_argument(
         "--destination",
         metavar="PATH",
-        help="Override deployed script directory. Must be inside the per-user AppData Resolve scripts tree.",
+        help="Override deployed script directory. Must be inside the per-user Resolve support tree.",
     )
     parser.add_argument("--dry-run", action="store_true", help="Print the resolved file path without deleting it.")
     parser.add_argument("--verbose", action="store_true", help="Print extra diagnostics during cleanup.")
@@ -42,16 +42,16 @@ def main() -> None:
     if args.verbose:
         print(f"Environment : {env}")
 
-    appdata_win = get_appdata_win(env)
+    user_support_root = get_user_support_root(env)
     if args.destination:
         raw = args.destination
         if env == "wsl" and not raw.startswith("/"):
             dest_dir = to_wsl_path(raw)
         else:
-            dest_dir = Path(raw)
-        validate_destination(dest_dir, appdata_win, env)
+            dest_dir = Path(raw).expanduser()
+        validate_destination(dest_dir, user_support_root, env)
     else:
-        dest_dir = resolve_default_destination(env, appdata_win, args.verbose)
+        dest_dir = resolve_default_destination(env, user_support_root, args.verbose)
 
     target = dest_dir / args.name
     if args.verbose or args.dry_run:

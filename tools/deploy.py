@@ -2,8 +2,8 @@
 r"""
 Deploy a DaVinci Resolve Python script to the per-user Resolve Scripts folder.
 
-Works from both WSL and native Windows. Destination is always the per-user
-AppData Resolve Scripts/Utility folder.
+Works from macOS, WSL, and native Windows. Destination is always the per-user
+Resolve Scripts/Utility folder.
 
 Usage:
     python tools/deploy.py [SOURCE] [--destination PATH] [--dry-run] [--verbose]
@@ -20,7 +20,7 @@ sys.dont_write_bytecode = True
 
 from shared.resolve_tooling import (
     detect_environment,
-    get_appdata_win,
+    get_user_support_root,
     resolve_default_destination,
     to_wsl_path,
     validate_destination,
@@ -36,13 +36,9 @@ def copy_script(source: Path, dest_dir: Path, dry_run: bool, verbose: bool) -> N
         print("[dry-run] No files were changed.")
         return
 
-    if not dest_dir.exists():
-        print(
-            f"ERROR: Destination folder does not exist: {dest_dir}\n"
-            "  Open DaVinci Resolve once to create its script directories, then retry.",
-            file=sys.stderr,
-        )
-        sys.exit(1)
+    dest_dir.mkdir(parents=True, exist_ok=True)
+    if verbose:
+        print("  Ensured destination folder exists")
 
     shutil.copy2(source, dest_file)
     if verbose:
@@ -56,18 +52,18 @@ def main() -> None:
         description="Deploy a DaVinci Resolve script to the per-user Resolve Scripts folder.",
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
-    default_source = Path(__file__).resolve().parent.parent / "davinci-versioning.py"
+    default_source = Path(__file__).resolve().parent.parent / "davinci-versioning.lua"
     parser.add_argument(
         "source",
         metavar="SOURCE",
         nargs="?",
         default=str(default_source),
-        help="Path to the .py script to deploy. Defaults to davinci-versioning.py in the repo root.",
+        help="Path to the script to deploy. Defaults to davinci-versioning.lua in the repo root.",
     )
     parser.add_argument(
         "--destination",
         metavar="PATH",
-        help="Override deployment destination folder. Must be inside the per-user AppData Resolve scripts tree.",
+        help="Override deployment destination folder. Must be inside the per-user Resolve support tree.",
     )
     parser.add_argument("--dry-run", action="store_true", help="Print resolved paths without copying.")
     parser.add_argument("--verbose", action="store_true", help="Print extra diagnostics during deployment.")
@@ -77,23 +73,23 @@ def main() -> None:
     if args.verbose:
         print(f"Environment : {env}")
 
-    source = Path(args.source).resolve()
+    source = Path(args.source).expanduser().resolve()
     if not source.is_file():
         print(f"ERROR: Source file not found: {source}", file=sys.stderr)
         sys.exit(1)
     if args.verbose:
         print(f"Source      : {source}")
 
-    appdata_win = get_appdata_win(env)
+    user_support_root = get_user_support_root(env)
     if args.destination:
         raw = args.destination
         if env == "wsl" and not raw.startswith("/"):
             dest = to_wsl_path(raw)
         else:
-            dest = Path(raw)
-        validate_destination(dest, appdata_win, env)
+            dest = Path(raw).expanduser()
+        validate_destination(dest, user_support_root, env)
     else:
-        dest = resolve_default_destination(env, appdata_win, args.verbose)
+        dest = resolve_default_destination(env, user_support_root, args.verbose)
 
     if args.verbose or args.dry_run:
         print(f"Destination : {dest}")

@@ -1,13 +1,14 @@
 r"""
-DaVinci Resolve Auto-Version Render Job for Windows (Python)
+DaVinci Resolve Auto-Version Render Job for macOS/Windows (Python)
 
 Checks the output folder for existing files and creates the next _v## filename.
 
-Install to:
-    C:\ProgramData\Blackmagic Design\DaVinci Resolve\Fusion\Scripts\Utility
-"""
+Install on macOS to:
+    ~/Library/Application Support/Blackmagic Design/DaVinci Resolve/Fusion/Scripts/Utility
 
-from __future__ import annotations
+Install on Windows to:
+    %APPDATA%\Blackmagic Design\DaVinci Resolve\Support\Fusion\Scripts\Utility
+"""
 
 import sys
 
@@ -18,6 +19,7 @@ import re
 import tempfile
 from pathlib import Path
 from tkinter import Tk, filedialog
+from typing import List, Optional, Tuple
 
 dvr_script = None
 
@@ -38,18 +40,18 @@ VERSION_DIGITS = 2
 # HELPERS
 # ------------------------------------------------------------
 
-def log_line(lines: list[str], text: object) -> None:
+def log_line(lines: List[str], text: object) -> None:
     message = str(text)
     lines.append(message)
     print(message)
 
 
-def write_log(lines: list[str]) -> None:
+def write_log(lines: List[str]) -> None:
     log_path = Path(tempfile.gettempdir()) / "resolve_auto_version_render_log.txt"
     log_path.write_text("\n".join(lines) + "\n", encoding="utf-8")
 
 
-def prompt_for_output_folder(lines: list[str]) -> Path | None:
+def prompt_for_output_folder(lines: List[str]) -> Optional[Path]:
     root = Tk()
     root.withdraw()
     root.attributes("-topmost", True)
@@ -77,9 +79,9 @@ def sanitize_filename(name: object) -> str:
 
 
 def get_existing_versions(
-    folder: Path, base_name: str, extension: str, lines: list[str]
-) -> list[int]:
-    versions: list[int] = []
+    folder: Path, base_name: str, extension: str, lines: List[str]
+) -> List[int]:
+    versions = []  # type: List[int]
     pattern = re.compile(
         rf"^{re.escape(base_name)}_v(\d+)\.{re.escape(extension)}$",
         re.IGNORECASE,
@@ -103,7 +105,7 @@ def get_existing_versions(
     return versions
 
 
-def next_version_number(folder: Path, base_name: str, extension: str, lines: list[str]) -> int:
+def next_version_number(folder: Path, base_name: str, extension: str, lines: List[str]) -> int:
     versions = get_existing_versions(folder, base_name, extension, lines)
     return (max(versions) if versions else 0) + 1
 
@@ -118,7 +120,7 @@ def get_resolve():
         return None
 
 
-def load_resolve_script_module(lines: list[str]):
+def load_resolve_script_module(lines: List[str]):
     global dvr_script
 
     if dvr_script is not None:
@@ -133,11 +135,18 @@ def load_resolve_script_module(lines: list[str]):
     except ImportError:
         pass
 
-    candidate_module_dirs = [
-        Path(os.environ.get("RESOLVE_SCRIPT_API", "")) / "Modules",
-        Path(r"C:\ProgramData\Blackmagic Design\DaVinci Resolve\Support\Developer\Scripting\Modules"),
-        Path(r"C:\Program Files\Blackmagic Design\DaVinci Resolve\Developer\Scripting\Modules"),
-    ]
+    candidate_module_dirs = []
+    if os.environ.get("RESOLVE_SCRIPT_API"):
+        candidate_module_dirs.append(Path(os.environ["RESOLVE_SCRIPT_API"]) / "Modules")
+
+    candidate_module_dirs.extend(
+        [
+            Path("/Library/Application Support/Blackmagic Design/DaVinci Resolve/Developer/Scripting/Modules"),
+            Path.home() / "Library/Application Support/Blackmagic Design/DaVinci Resolve/Developer/Scripting/Modules",
+            Path(r"C:\ProgramData\Blackmagic Design\DaVinci Resolve\Support\Developer\Scripting\Modules"),
+            Path(r"C:\Program Files\Blackmagic Design\DaVinci Resolve\Developer\Scripting\Modules"),
+        ]
+    )
 
     for module_dir in candidate_module_dirs:
         if not str(module_dir):
@@ -168,7 +177,7 @@ def load_resolve_script_module(lines: list[str]):
     return None
 
 
-def get_current_extension(project, lines: list[str]) -> str | None:
+def get_current_extension(project, lines: List[str]) -> Optional[str]:
     current_render = project.GetCurrentRenderFormatAndCodec()
     if not current_render:
         log_line(lines, "ERROR: Could not read current render format/codec from Resolve.")
@@ -214,7 +223,7 @@ def get_current_extension(project, lines: list[str]) -> str | None:
     return extension
 
 
-def get_project_output_folder(project, lines: list[str]) -> tuple[Path, bool] | None:
+def get_project_output_folder(project, lines: List[str]) -> Optional[Tuple[Path, bool]]:
     render_jobs = project.GetRenderJobList()
     if render_jobs:
         latest_job = render_jobs[-1]
@@ -249,7 +258,7 @@ def get_project_output_folder(project, lines: list[str]) -> tuple[Path, bool] | 
 # ------------------------------------------------------------
 
 def main() -> None:
-    lines: list[str] = []
+    lines = []  # type: List[str]
     log_line(lines, "Resolve Auto-Version Render (Python)")
     log_line(lines, "------------------------------------")
 
@@ -301,8 +310,9 @@ def main() -> None:
 
     next_v = next_version_number(output_folder, base_name, extension, lines)
     custom_name = f"{base_name}_v{next_v:0{VERSION_DIGITS}d}"
+    expected_file = output_folder / "{}.{}".format(custom_name, extension)
     log_line(lines, f"Next filename without extension: {custom_name}")
-    log_line(lines, f"Expected full file: {output_folder}\\{custom_name}.{extension}")
+    log_line(lines, f"Expected full file: {expected_file}")
 
     render_settings = {
         "CustomName": custom_name,
