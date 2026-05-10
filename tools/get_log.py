@@ -20,7 +20,14 @@ from shared.resolve_tooling import (
 )
 
 DEFAULT_LOG_FILENAME = "resolve_auto_version_render_log.txt"
-DEFAULT_SCRIPT_NAMES = ("davinci-versioning.lua", "davinci-versioning.py")
+DEFAULT_SCRIPT_NAMES = (
+    "davinci-versioning.lua",
+    "davinci-versioning.py",
+    "davinci-toggle-noise-reduction.lua",
+    "davinci-toggle-noise-reduction_v_2.lua",
+    "davinci-toggle-ai-ultra-sharpen_v_1.lua",
+    "davinci-toggle-color-effects_v_1.lua",
+)
 
 
 def format_mtime(timestamp: float) -> str:
@@ -73,7 +80,7 @@ def print_debug(env: str, log_path: Path, names: list[str]) -> None:
 def main() -> None:
     parser = argparse.ArgumentParser(description="Print a Resolve script log file.")
     parser.add_argument("--path", action="store_true", help="Print the resolved log path without reading the file.")
-    parser.add_argument("--debug", action="store_true", help="Print resolved macOS paths and deployed script diagnostics.")
+    parser.add_argument("--debug", action="store_true", help="Print resolved paths and deployed script diagnostics.")
     parser.add_argument(
         "--name",
         default=DEFAULT_LOG_FILENAME,
