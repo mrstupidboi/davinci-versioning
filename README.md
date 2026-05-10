@@ -10,12 +10,44 @@ When run from `Workspace > Scripts > Utility`, the script prompts for:
 
 - Target: `Noise Reduction`, `AI Ultra Sharpen`, or `Both`
 - Action: `Disable` or `Enable`
+- Scope: `Pre-Clip`, `Clip`, `Post-Clip`, `Timeline`, or `All`
 
-The script scans each timeline, temporarily makes it current while processing its node graph, applies the selected action to matching nodes, and restores the original timeline at the end.
+The script scans each timeline, temporarily makes it current while processing, applies the selected action to matching nodes, and restores the original timeline at the end.
+
+The first run defaults to `Both`, `Disable`, and `All`. After that, it remembers your last valid Target and Scope choices in the system temp folder, while the Action defaults to the opposite of the last valid run.
+
+Scopes covered:
+
+- Clip nodes, including clip node stack layers
+- Timeline nodes
+- Group Pre-Clip nodes
+- Group Post-Clip nodes
+
+## macOS Install
+
+Double-click `install_macos.command`, or run:
+
+```bash
+./install_macos.command
+```
+
+Manual install path:
+
+```text
+~/Library/Application Support/Blackmagic Design/DaVinci Resolve/Fusion/Scripts/Utility
+```
+
+Restart DaVinci Resolve if the script does not appear in the menu.
 
 ## Windows 11 Install
 
-Copy `davinci-toggle-color-effects_v_1.lua` to:
+Double-click `install_win11.bat`, or run it from PowerShell / Command Prompt:
+
+```powershell
+.\install_win11.bat
+```
+
+Manual install path:
 
 ```text
 %APPDATA%\Blackmagic Design\DaVinci Resolve\Support\Fusion\Scripts\Utility
@@ -29,9 +61,17 @@ C:\Users\<you>\AppData\Roaming\Blackmagic Design\DaVinci Resolve\Support\Fusion\
 
 Restart DaVinci Resolve if the script does not appear in the menu.
 
-## Windows 11 Deploy Helper
+## Deploy Helper
 
-From PowerShell or Command Prompt, inside this repo:
+The installer scripts call the shared Python deploy helper. You can also run it directly.
+
+macOS:
+
+```bash
+python3 tools/deploy.py davinci-toggle-color-effects_v_1.lua
+```
+
+Windows 11:
 
 ```powershell
 python tools\deploy.py davinci-toggle-color-effects_v_1.lua
@@ -51,13 +91,21 @@ The combined script writes a log named:
 resolve_toggle_color_effects_v_1_log.txt
 ```
 
-On Windows, read it with:
+Read it with:
+
+macOS:
+
+```bash
+python3 tools/get_log.py --name resolve_toggle_color_effects_v_1_log.txt
+```
+
+Windows 11:
 
 ```powershell
 python tools\get_log.py --name resolve_toggle_color_effects_v_1_log.txt
 ```
 
-The log lives in `%TEMP%`.
+The log lives in the system temp folder: `%TEMP%` on Windows and `$TMPDIR` on macOS.
 
 ## Notes
 

@@ -10,6 +10,16 @@
 local LOG_UNMATCHED_NODE_TOOLS = true
 
 local LOG_FILENAME = "resolve_toggle_color_effects_v_1_log.txt"
+local CHOICE_FILENAME = "resolve_toggle_color_effects_v_1_choices.txt"
+
+local TARGET_OPTIONS = { "Noise Reduction", "AI Ultra Sharpen", "Both" }
+local ACTION_OPTIONS = { "Disable", "Enable" }
+local SCOPE_OPTIONS = { "Pre-Clip", "Clip", "Post-Clip", "Timeline", "All" }
+local DEFAULT_CHOICES = {
+    ["Target"] = "Both",
+    ["Action"] = "Disable",
+    ["Scope"] = "All",
+}
 
 local EFFECTS = {
     {
@@ -72,6 +82,71 @@ local function write_log()
     file:close()
 end
 
+local function option_index(options, value)
+    for index, option in ipairs(options) do
+        if option == value then
+            return index
+        end
+    end
+    return nil
+end
+
+local function option_or_default(options, value, default_value)
+    if option_index(options, value) then
+        return value
+    end
+    return default_value
+end
+
+local function read_saved_choices()
+    local choices = {
+        ["Target"] = DEFAULT_CHOICES["Target"],
+        ["Action"] = DEFAULT_CHOICES["Action"],
+        ["Scope"] = DEFAULT_CHOICES["Scope"],
+    }
+
+    local file = io.open(temp_path(CHOICE_FILENAME), "r")
+    if not file then
+        return choices
+    end
+
+    for line in file:lines() do
+        local key, value = tostring(line):match("^([^=]+)=(.*)$")
+        if key and value then
+            choices[key] = value
+        end
+    end
+    file:close()
+
+    choices["Target"] = option_or_default(TARGET_OPTIONS, choices["Target"], DEFAULT_CHOICES["Target"])
+    choices["Action"] = option_or_default(ACTION_OPTIONS, choices["Action"], DEFAULT_CHOICES["Action"])
+    choices["Scope"] = option_or_default(SCOPE_OPTIONS, choices["Scope"], DEFAULT_CHOICES["Scope"])
+    return choices
+end
+
+local function write_saved_choices(choices)
+    local file = io.open(temp_path(CHOICE_FILENAME), "w")
+    if not file then
+        log_line("WARNING: Could not write choice state file.")
+        return
+    end
+
+    file:write("Target=" .. tostring(choices["Target"] or DEFAULT_CHOICES["Target"]) .. "\n")
+    file:write("Action=" .. tostring(choices["Action"] or DEFAULT_CHOICES["Action"]) .. "\n")
+    file:write("Scope=" .. tostring(choices["Scope"] or DEFAULT_CHOICES["Scope"]) .. "\n")
+    file:close()
+end
+
+local function opposite_action(action)
+    if action == "Disable" then
+        return "Enable"
+    end
+    if action == "Enable" then
+        return "Disable"
+    end
+    return DEFAULT_CHOICES["Action"]
+end
+
 local function table_count(values)
     local count = 0
     if not values then
@@ -92,17 +167,6 @@ local function item_display_name(item)
         return tostring(name)
     end
     return "Untitled timeline item"
-end
-
-local function get_graph(item)
-    local ok, graph = pcall(function()
-        return item:GetNodeGraph()
-    end)
-    if ok and graph then
-        return graph
-    end
-
-    return nil
 end
 
 local function get_tools(graph, node_index)
@@ -164,32 +228,13 @@ local function set_node_enabled(graph, node_index, enabled)
     return ok and result == true
 end
 
-local function process_item(item, timeline_index, timeline_name, track_index, item_index, selected_effects, target_enabled)
-    local clip_name = item_display_name(item)
-    local graph = get_graph(item)
-    if not graph then
-        log_line(
-            "Timeline " .. timeline_index ..
-            " (" .. timeline_name .. ")" ..
-            " track " .. track_index ..
-            " item " .. item_index ..
-            " skipped, no color node graph: " .. clip_name
-        )
-        return 0, 0
-    end
-
+local function process_graph(context_label, graph, selected_effects, target_enabled)
     local ok, node_count = pcall(function()
         return graph:GetNumNodes()
     end)
     if not ok or not node_count or node_count < 1 then
-        log_line(
-            "Timeline " .. timeline_index ..
-            " (" .. timeline_name .. ")" ..
-            " track " .. track_index ..
-            " item " .. item_index ..
-            " skipped, no nodes: " .. clip_name
-        )
-        return 0, 0
+        log_line(context_label .. " skipped, no nodes")
+        return 0, 0, 1
     end
 
     local matches = 0
@@ -201,43 +246,198 @@ local function process_item(item, timeline_index, timeline_name, track_index, it
             if set_node_enabled(graph, node_index, target_enabled) then
                 changed = changed + 1
                 log_line(
-                    "Timeline " .. timeline_index ..
-                    " (" .. timeline_name .. ")" ..
-                    " track " .. track_index ..
-                    " item " .. item_index ..
+                    context_label ..
                     " node " .. node_index ..
                     " -> " .. (target_enabled and "enabled" or "disabled") ..
-                    " | " .. clip_name ..
                     " | matched: " .. effect_summary ..
                     " | tools: " .. tool_summary
                 )
             else
                 log_line(
-                    "ERROR: Failed to set timeline " .. timeline_index ..
-                    " (" .. timeline_name .. ")" ..
-                    " track " .. track_index ..
-                    " item " .. item_index ..
+                    "ERROR: Failed to set " .. context_label ..
                     " node " .. node_index ..
-                    " | " .. clip_name ..
                     " | matched: " .. effect_summary ..
                     " | tools: " .. tool_summary
                 )
             end
         elseif LOG_UNMATCHED_NODE_TOOLS and tool_summary ~= "(no tools reported)" then
             log_line(
-                "Timeline " .. timeline_index ..
-                " (" .. timeline_name .. ")" ..
-                " track " .. track_index ..
-                " item " .. item_index ..
+                context_label ..
                 " node " .. node_index ..
                 " not matched" ..
-                " | " .. clip_name ..
                 " | tools: " .. tool_summary
             )
         end
     end
 
-    return matches, changed
+    return matches, changed, 1
+end
+
+local function get_clip_graph(item, layer_index)
+    local ok, graph = pcall(function()
+        return item:GetNodeGraph(layer_index)
+    end)
+    if ok and graph then
+        return graph
+    end
+
+    if layer_index == 1 then
+        local ok_fallback, fallback_graph = pcall(function()
+            return item:GetNodeGraph()
+        end)
+        if ok_fallback and fallback_graph then
+            return fallback_graph
+        end
+    end
+
+    return nil
+end
+
+local function get_timeline_graph(timeline)
+    local ok, graph = pcall(function()
+        return timeline:GetNodeGraph()
+    end)
+    if ok and graph then
+        return graph
+    end
+    return nil
+end
+
+local function get_color_group(item)
+    local ok, color_group = pcall(function()
+        return item:GetColorGroup()
+    end)
+    if ok and color_group then
+        return color_group
+    end
+    return nil
+end
+
+local function color_group_display_name(color_group)
+    local ok, name = pcall(function()
+        return color_group:GetName()
+    end)
+    if ok and name and name ~= "" then
+        return tostring(name)
+    end
+    return "Unnamed Color Group"
+end
+
+local function get_group_graph(color_group, graph_getter_name)
+    local ok, graph = pcall(function()
+        return color_group[graph_getter_name](color_group)
+    end)
+    if ok and graph then
+        return graph
+    end
+    return nil
+end
+
+local function get_node_stack_layer_count(project)
+    local ok, value = pcall(function()
+        return project:GetSetting("nodeStackLayers")
+    end)
+    local count = tonumber(ok and value or nil)
+    if count and count > 0 then
+        return count
+    end
+    return 1
+end
+
+local function scope_includes(scope_choice, scope_name)
+    return scope_choice == "All" or scope_choice == scope_name
+end
+
+local function is_valid_scope(scope_choice)
+    return scope_choice == "Pre-Clip" or
+        scope_choice == "Clip" or
+        scope_choice == "Post-Clip" or
+        scope_choice == "Timeline" or
+        scope_choice == "All"
+end
+
+local function process_item(
+    item,
+    timeline_index,
+    timeline_name,
+    track_index,
+    item_index,
+    selected_effects,
+    target_enabled,
+    scope_choice,
+    node_stack_layers,
+    processed_groups
+)
+    local clip_name = item_display_name(item)
+    local base_context =
+        "Timeline " .. timeline_index ..
+        " (" .. timeline_name .. ")" ..
+        " track " .. track_index ..
+        " item " .. item_index ..
+        " | clip: " .. clip_name
+
+    local total_matches = 0
+    local total_changed = 0
+    local total_graphs = 0
+
+    if scope_includes(scope_choice, "Clip") then
+        for layer_index = 1, node_stack_layers do
+            local graph = get_clip_graph(item, layer_index)
+            if graph then
+                local context_label = base_context .. " | Clip layer " .. layer_index
+                local matches, changed, graphs = process_graph(context_label, graph, selected_effects, target_enabled)
+                total_matches = total_matches + matches
+                total_changed = total_changed + changed
+                total_graphs = total_graphs + graphs
+            elseif layer_index == 1 then
+                log_line(base_context .. " skipped, no clip node graph")
+            end
+        end
+    end
+
+    if scope_includes(scope_choice, "Pre-Clip") or scope_includes(scope_choice, "Post-Clip") then
+        local color_group = get_color_group(item)
+        if not color_group then
+            return total_matches, total_changed, total_graphs
+        end
+
+        local group_name = color_group_display_name(color_group)
+        if not processed_groups[group_name] then
+            processed_groups[group_name] = true
+
+            if scope_includes(scope_choice, "Pre-Clip") then
+                local pre_graph = get_group_graph(color_group, "GetPreClipNodeGraph")
+                if pre_graph then
+                    local matches, changed, graphs = process_graph(
+                        "Color group: " .. group_name .. " | Group Pre-Clip",
+                        pre_graph,
+                        selected_effects,
+                        target_enabled
+                    )
+                    total_matches = total_matches + matches
+                    total_changed = total_changed + changed
+                    total_graphs = total_graphs + graphs
+                end
+            end
+
+            if scope_includes(scope_choice, "Post-Clip") then
+                local post_graph = get_group_graph(color_group, "GetPostClipNodeGraph")
+                if post_graph then
+                    local matches, changed, graphs = process_graph(
+                        "Color group: " .. group_name .. " | Group Post-Clip",
+                        post_graph,
+                        selected_effects,
+                        target_enabled
+                    )
+                    total_matches = total_matches + matches
+                    total_changed = total_changed + changed
+                    total_graphs = total_graphs + graphs
+                end
+            end
+        end
+    end
+
+    return total_matches, total_changed, total_graphs
 end
 
 local function timeline_display_name(timeline, timeline_index)
@@ -250,7 +450,16 @@ local function timeline_display_name(timeline, timeline_index)
     return "Timeline " .. tostring(timeline_index)
 end
 
-local function process_timeline(project, timeline, timeline_index, selected_effects, target_enabled)
+local function process_timeline(
+    project,
+    timeline,
+    timeline_index,
+    selected_effects,
+    target_enabled,
+    scope_choice,
+    node_stack_layers,
+    processed_groups
+)
     local timeline_name = timeline_display_name(timeline, timeline_index)
     log_line("------------------------------------------")
     log_line("Timeline " .. tostring(timeline_index) .. ": " .. timeline_name)
@@ -267,14 +476,33 @@ local function process_timeline(project, timeline, timeline_index, selected_effe
     end)
     if not ok_track_count or not track_count then
         log_line("WARNING: Could not read video tracks for timeline: " .. timeline_name)
-        return 0, 0, 0
+        return 0, 0, 0, 0
     end
 
     log_line("Video tracks: " .. tostring(track_count))
 
     local timeline_items = 0
+    local timeline_graphs = 0
     local timeline_matches = 0
     local timeline_changed = 0
+
+    if scope_includes(scope_choice, "Timeline") then
+        local timeline_graph = get_timeline_graph(timeline)
+        if timeline_graph then
+            local matches, changed, graphs = process_graph(
+                "Timeline " .. timeline_index .. " (" .. timeline_name .. ") | Timeline nodes",
+                timeline_graph,
+                selected_effects,
+                target_enabled
+            )
+            timeline_matches = timeline_matches + matches
+            timeline_changed = timeline_changed + changed
+            timeline_graphs = timeline_graphs + graphs
+        else
+            log_line("Timeline " .. timeline_index .. " (" .. timeline_name .. ") skipped, no timeline node graph")
+        end
+    end
+
     for track_index = 1, track_count do
         local ok_items, items = pcall(function()
             return timeline:GetItemListInTrack("video", track_index)
@@ -286,26 +514,31 @@ local function process_timeline(project, timeline, timeline_index, selected_effe
             for item_index, item in pairs(items) do
                 if type(item_index) == "number" then
                     timeline_items = timeline_items + 1
-                    local matches, changed = process_item(
+                    local matches, changed, graphs = process_item(
                         item,
                         timeline_index,
                         timeline_name,
                         track_index,
                         item_index,
                         selected_effects,
-                        target_enabled
+                        target_enabled,
+                        scope_choice,
+                        node_stack_layers,
+                        processed_groups
                     )
                     timeline_matches = timeline_matches + matches
                     timeline_changed = timeline_changed + changed
+                    timeline_graphs = timeline_graphs + graphs
                 end
             end
         end
     end
 
     log_line("Timeline items scanned: " .. tostring(timeline_items))
+    log_line("Node graphs scanned: " .. tostring(timeline_graphs))
     log_line("Matching nodes found: " .. tostring(timeline_matches))
     log_line("Nodes changed: " .. tostring(timeline_changed))
-    return timeline_items, timeline_matches, timeline_changed
+    return timeline_items, timeline_graphs, timeline_matches, timeline_changed
 end
 
 local function selected_dropdown_value(value, options)
@@ -336,7 +569,36 @@ local function effect_labels(selected_effects)
     return table.concat(labels, ", ")
 end
 
-local function ask_user_with_uimanager(fusion, target_options, action_options)
+local function combo_selected_value(combo, options, default_one_based_index)
+    local current_text = combo.CurrentText
+    if current_text and current_text ~= "" then
+        return tostring(current_text)
+    end
+
+    local index = combo.CurrentIndex
+    if type(index) ~= "number" then
+        return options[default_one_based_index]
+    end
+
+    return options[index] or options[index + 1] or options[default_one_based_index]
+end
+
+local function set_combo_to_choice(combo, options, choice, default_choice)
+    local index = option_index(options, choice) or option_index(options, default_choice) or 1
+    pcall(function()
+        combo.CurrentIndex = index
+    end)
+    pcall(function()
+        combo.CurrentText = options[index]
+    end)
+end
+
+local function askuser_default_index(options, choice, default_choice)
+    local index = option_index(options, choice) or option_index(options, default_choice) or 1
+    return index - 1
+end
+
+local function ask_user_with_uimanager(fusion, saved_choices)
     local ui = fusion.UIManager
     if not ui then
         return nil, "Fusion UIManager is not available."
@@ -353,7 +615,7 @@ local function ask_user_with_uimanager(fusion, target_options, action_options)
     local window = dispatcher:AddWindow({
         ID = "ToggleColorEffectNodes",
         WindowTitle = "Toggle Color Effect Nodes",
-        Geometry = { 100, 100, 420, 150 },
+        Geometry = { 100, 100, 460, 190 },
 
         ui:VGroup{
             ID = "Root",
@@ -370,6 +632,11 @@ local function ask_user_with_uimanager(fusion, target_options, action_options)
             },
 
             ui:HGroup{
+                ui:Label{ Text = "Scope", MinimumSize = { 110, 24 } },
+                ui:ComboBox{ ID = "ScopeCombo", Weight = 1 },
+            },
+
+            ui:HGroup{
                 ui:HGap(0, 1),
                 ui:Button{ ID = "CancelButton", Text = "Cancel" },
                 ui:Button{ ID = "ApplyButton", Text = "Apply" },
@@ -382,22 +649,25 @@ local function ask_user_with_uimanager(fusion, target_options, action_options)
     end
 
     local items = window:GetItems()
-    for _, option in ipairs(target_options) do
+    for _, option in ipairs(TARGET_OPTIONS) do
         items.TargetCombo:AddItem(option)
     end
-    for _, option in ipairs(action_options) do
+    for _, option in ipairs(ACTION_OPTIONS) do
         items.ActionCombo:AddItem(option)
     end
-    items.TargetCombo.CurrentIndex = 2
-    items.ActionCombo.CurrentIndex = 0
+    for _, option in ipairs(SCOPE_OPTIONS) do
+        items.ScopeCombo:AddItem(option)
+    end
+    set_combo_to_choice(items.TargetCombo, TARGET_OPTIONS, saved_choices["Target"], DEFAULT_CHOICES["Target"])
+    set_combo_to_choice(items.ActionCombo, ACTION_OPTIONS, saved_choices["Action"], DEFAULT_CHOICES["Action"])
+    set_combo_to_choice(items.ScopeCombo, SCOPE_OPTIONS, saved_choices["Scope"], DEFAULT_CHOICES["Scope"])
 
     local response = nil
     function window.On.ApplyButton.Clicked()
-        local target_index = items.TargetCombo.CurrentIndex
-        local action_index = items.ActionCombo.CurrentIndex
         response = {
-            ["Target"] = target_options[(target_index or 2) + 1] or "Both",
-            ["Action"] = action_options[(action_index or 0) + 1] or "Disable",
+            ["Target"] = combo_selected_value(items.TargetCombo, TARGET_OPTIONS, option_index(TARGET_OPTIONS, DEFAULT_CHOICES["Target"])),
+            ["Action"] = combo_selected_value(items.ActionCombo, ACTION_OPTIONS, option_index(ACTION_OPTIONS, DEFAULT_CHOICES["Action"])),
+            ["Scope"] = combo_selected_value(items.ScopeCombo, SCOPE_OPTIONS, option_index(SCOPE_OPTIONS, DEFAULT_CHOICES["Scope"])),
         }
         dispatcher:ExitLoop()
     end
@@ -421,11 +691,11 @@ local function ask_user_with_uimanager(fusion, target_options, action_options)
 end
 
 local function ask_user(resolve)
-    local target_options = { "Noise Reduction", "AI Ultra Sharpen", "Both" }
-    local action_options = { "Disable", "Enable" }
+    local saved_choices = read_saved_choices()
     local controls = {
-        { "Target", Name = "Target", "Dropdown", Options = target_options, Default = 2 },
-        { "Action", Name = "Action", "Dropdown", Options = action_options, Default = 0 },
+        { "Target", Name = "Target", "Dropdown", Options = TARGET_OPTIONS, Default = askuser_default_index(TARGET_OPTIONS, saved_choices["Target"], DEFAULT_CHOICES["Target"]) },
+        { "Action", Name = "Action", "Dropdown", Options = ACTION_OPTIONS, Default = askuser_default_index(ACTION_OPTIONS, saved_choices["Action"], DEFAULT_CHOICES["Action"]) },
+        { "Scope", Name = "Scope", "Dropdown", Options = SCOPE_OPTIONS, Default = askuser_default_index(SCOPE_OPTIONS, saved_choices["Scope"], DEFAULT_CHOICES["Scope"]) },
     }
 
     local fusion = resolve:Fusion()
@@ -435,7 +705,7 @@ local function ask_user(resolve)
 
     local prompt_errors = {}
     local ok_ui, ui_response, ui_error = pcall(function()
-        return ask_user_with_uimanager(fusion, target_options, action_options)
+        return ask_user_with_uimanager(fusion, saved_choices)
     end)
     if ok_ui and ui_response then
         return ui_response, nil
@@ -530,28 +800,54 @@ local function main()
 
     local target_choice = selected_dropdown_value(response["Target"], { "Noise Reduction", "AI Ultra Sharpen", "Both" })
     local action_choice = selected_dropdown_value(response["Action"], { "Disable", "Enable" })
+    local scope_choice = selected_dropdown_value(response["Scope"], { "Pre-Clip", "Clip", "Post-Clip", "Timeline", "All" })
     local selected_effects = selected_effects_from_choice(target_choice)
     if not selected_effects then
         log_line("ERROR: Unknown target choice: " .. tostring(target_choice))
         write_log()
         return
     end
+    if not is_valid_scope(scope_choice) then
+        log_line("ERROR: Unknown scope choice: " .. tostring(scope_choice))
+        write_log()
+        return
+    end
+    write_saved_choices({
+        ["Target"] = target_choice,
+        ["Action"] = opposite_action(action_choice),
+        ["Scope"] = scope_choice,
+    })
 
     local target_enabled = action_choice == "Enable"
+    local node_stack_layers = get_node_stack_layer_count(project)
     log_line("Project: " .. tostring(project:GetName()))
     log_line("Timelines: " .. tostring(timeline_count))
+    log_line("Clip node stack layers: " .. tostring(node_stack_layers))
     log_line("Target: " .. effect_labels(selected_effects))
     log_line("Action: " .. (target_enabled and "enable matching nodes" or "disable matching nodes"))
+    log_line("Scope: " .. tostring(scope_choice))
 
     local total_items = 0
+    local total_graphs = 0
     local total_matches = 0
     local total_changed = 0
+    local processed_groups = {}
 
     for timeline_index = 1, timeline_count do
         local timeline = project:GetTimelineByIndex(timeline_index)
         if timeline then
-            local items, matches, changed = process_timeline(project, timeline, timeline_index, selected_effects, target_enabled)
+            local items, graphs, matches, changed = process_timeline(
+                project,
+                timeline,
+                timeline_index,
+                selected_effects,
+                target_enabled,
+                scope_choice,
+                node_stack_layers,
+                processed_groups
+            )
             total_items = total_items + items
+            total_graphs = total_graphs + graphs
             total_matches = total_matches + matches
             total_changed = total_changed + changed
         else
@@ -573,6 +869,7 @@ local function main()
     log_line("-------------------------------------------")
     log_line("Project timelines scanned: " .. tostring(timeline_count))
     log_line("Timeline items scanned: " .. tostring(total_items))
+    log_line("Node graphs scanned: " .. tostring(total_graphs))
     log_line("Matching nodes found: " .. tostring(total_matches))
     log_line("Nodes changed: " .. tostring(total_changed))
     log_line("Log file: " .. temp_path(LOG_FILENAME))
