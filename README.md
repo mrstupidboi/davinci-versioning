@@ -110,3 +110,5 @@ The log lives in the system temp folder: `%TEMP%` on Windows and `$TMPDIR` on ma
 ## Notes
 
 DaVinci Resolve's scripting API can enable or disable a node, but it does not expose a reliable `GetNodeEnabled()` call. For that reason, the combined script asks for an explicit `Enable` or `Disable` action rather than guessing the current node state.
+
+you might have to install python for the script to show up in Resolve
